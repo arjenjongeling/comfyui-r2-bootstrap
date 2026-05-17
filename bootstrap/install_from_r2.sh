@@ -103,6 +103,30 @@ configure_rclone_remote() {
     log "rclone remote is configured: ${R2_REMOTE_NAME}"
 }
 
+validate_r2_access() {
+    local bucket_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
+    local prefix_path="${bucket_path}/${R2_COMFYUI_PREFIX}"
+    local prefix_listing
+
+    log "Validating R2 bucket access: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
+    if ! rclone lsd "${bucket_path}" >/dev/null; then
+        fatal "Cannot access R2 bucket '${R2_BUCKET_NAME}'. Check endpoint, credentials, bucket name, and account permissions."
+    fi
+
+    log "Validating R2 ComfyUI prefix: ${R2_COMFYUI_PREFIX}"
+    if ! prefix_listing="$(rclone lsf "${prefix_path}" --max-depth 1)"; then
+        fatal "Cannot access R2 prefix '${R2_COMFYUI_PREFIX}' in bucket '${R2_BUCKET_NAME}'. Check that the ComfyUI tree exists in R2."
+    fi
+    if [ -z "${prefix_listing}" ]; then
+        fatal "R2 prefix '${R2_COMFYUI_PREFIX}' exists but appears to be empty. Expected a ComfyUI asset tree."
+    fi
+
+    log "R2 prefix listing preview:"
+    rclone lsf "${prefix_path}" --max-depth 2 2>/dev/null | sed -n '1,20p' | while IFS= read -r item; do
+        log "  ${item}"
+    done
+}
+
 if [ ! -f "${ENV_FILE}" ]; then
     fatal "Missing ${ENV_FILE}. Copy bootstrap/r2.env.example to bootstrap/r2.env and fill in your R2 settings."
 fi
@@ -145,16 +169,16 @@ log "  R2 secret access key: set"
 
 ensure_rclone_installed
 configure_rclone_remote
+validate_r2_access
 
 cat <<'EOF'
 
 This bootstrap script is currently a scaffold.
 
 Planned implementation:
-1. Validate access to the configured bucket/prefix.
-2. Prepare COMFYUI_DIR as the local sync target.
-3. Sync models, custom nodes, workflows, and user data from R2.
-4. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
+1. Prepare COMFYUI_DIR as the local sync target.
+2. Sync models, custom nodes, workflows, and user data from R2.
+3. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
 
 EOF
 
