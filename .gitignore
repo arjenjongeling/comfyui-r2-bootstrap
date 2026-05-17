@@ -1,0 +1,33 @@
+.DS_Store
+
+# Local credentials and runtime configuration
+.env
+.env.*
+*.env
+!*.env.example
+bootstrap/r2.env
+r2.env
+
+# Python/runtime cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ComfyUI assets must live in the user's private R2 bucket, not in git.
+ComfyUI/
+comfyui/
+models/
+custom_nodes/
+user/
+output/
+input/
+temp/
+
+# Large model/checkpoint formats
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.gguf
+*.onnx
+*.bin
