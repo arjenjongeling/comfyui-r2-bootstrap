@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-COMFYUI_DIR="${COMFYUI_DIR:-/workspace/ComfyUI}"
+COMFYUI_DIR="${COMFYUI_DIR:-/workspace/comfyui}"
 COMFYUI_HOST="${COMFYUI_HOST:-0.0.0.0}"
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 

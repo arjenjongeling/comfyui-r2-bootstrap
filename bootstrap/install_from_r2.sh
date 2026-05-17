@@ -127,6 +127,55 @@ validate_r2_access() {
     done
 }
 
+validate_comfyui_target() {
+    case "${COMFYUI_DIR}" in
+        ""|"/"|"/."|"/.."|"/workspace"|"/workspace/"|"/tmp"|"/tmp/"|"/var"|"/var/"|"/usr"|"/usr/"|"/home"|"/home/"|"/root"|"/root/")
+            fatal "Refusing unsafe COMFYUI_DIR target: ${COMFYUI_DIR}"
+            ;;
+    esac
+}
+
+directory_is_empty() {
+    local dir="$1"
+
+    [ -d "${dir}" ] || return 1
+    [ -z "$(find "${dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]
+}
+
+prepare_comfyui_installation() {
+    local comfyui_git_url="https://github.com/comfyanonymous/ComfyUI.git"
+    local parent_dir
+
+    validate_comfyui_target
+
+    log "Preparing local ComfyUI installation: ${COMFYUI_DIR}"
+
+    if [ -f "${COMFYUI_DIR}/main.py" ]; then
+        log "Existing ComfyUI installation found; reusing ${COMFYUI_DIR}"
+        return
+    fi
+
+    if [ -e "${COMFYUI_DIR}" ] && ! directory_is_empty "${COMFYUI_DIR}"; then
+        fatal "COMFYUI_DIR exists but does not look like a ComfyUI installation: ${COMFYUI_DIR}"
+    fi
+
+    if ! command_exists git; then
+        fatal "git is required to clone ComfyUI"
+    fi
+
+    parent_dir="$(dirname -- "${COMFYUI_DIR}")"
+    mkdir -p "${parent_dir}"
+
+    log "Cloning ComfyUI into ${COMFYUI_DIR}"
+    git clone --depth 1 "${comfyui_git_url}" "${COMFYUI_DIR}"
+
+    if [ ! -f "${COMFYUI_DIR}/main.py" ]; then
+        fatal "ComfyUI clone completed but main.py was not found in ${COMFYUI_DIR}"
+    fi
+
+    log "ComfyUI base installation is ready"
+}
+
 if [ ! -f "${ENV_FILE}" ]; then
     fatal "Missing ${ENV_FILE}. Copy bootstrap/r2.env.example to bootstrap/r2.env and fill in your R2 settings."
 fi
@@ -170,15 +219,15 @@ log "  R2 secret access key: set"
 ensure_rclone_installed
 configure_rclone_remote
 validate_r2_access
+prepare_comfyui_installation
 
 cat <<'EOF'
 
 This bootstrap script is currently a scaffold.
 
 Planned implementation:
-1. Prepare COMFYUI_DIR as the local sync target.
-2. Sync models, custom nodes, workflows, and user data from R2.
-3. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
+1. Sync models, custom nodes, workflows, and user data from R2.
+2. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
 
 EOF
 
