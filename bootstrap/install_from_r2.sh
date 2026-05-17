@@ -44,6 +44,65 @@ require_bool() {
     esac
 }
 
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+ensure_rclone_installed() {
+    if command_exists rclone; then
+        log "rclone is already installed: $(command -v rclone)"
+        return
+    fi
+
+    log "rclone is not installed; installing rclone"
+
+    if ! command_exists curl; then
+        fatal "curl is required to install rclone"
+    fi
+
+    if command_exists sudo; then
+        curl https://rclone.org/install.sh | sudo bash
+    else
+        curl https://rclone.org/install.sh | bash
+    fi
+
+    if ! command_exists rclone; then
+        fatal "rclone installation completed but rclone was not found in PATH"
+    fi
+
+    log "rclone installed: $(command -v rclone)"
+}
+
+configure_rclone_remote() {
+    local remote_exists="false"
+
+    if rclone listremotes | grep -Fx "${R2_REMOTE_NAME}:" >/dev/null; then
+        remote_exists="true"
+    fi
+
+    if [ "${remote_exists}" = "true" ]; then
+        log "Updating existing rclone remote: ${R2_REMOTE_NAME}"
+        rclone config update "${R2_REMOTE_NAME}" \
+            provider Cloudflare \
+            access_key_id "${R2_ACCESS_KEY_ID}" \
+            secret_access_key "${R2_SECRET_ACCESS_KEY}" \
+            endpoint "${R2_ENDPOINT}" \
+            acl private \
+            no_check_bucket true >/dev/null
+    else
+        log "Creating rclone remote: ${R2_REMOTE_NAME}"
+        rclone config create "${R2_REMOTE_NAME}" s3 \
+            provider Cloudflare \
+            access_key_id "${R2_ACCESS_KEY_ID}" \
+            secret_access_key "${R2_SECRET_ACCESS_KEY}" \
+            endpoint "${R2_ENDPOINT}" \
+            acl private \
+            no_check_bucket true >/dev/null
+    fi
+
+    log "rclone remote is configured: ${R2_REMOTE_NAME}"
+}
+
 if [ ! -f "${ENV_FILE}" ]; then
     fatal "Missing ${ENV_FILE}. Copy bootstrap/r2.env.example to bootstrap/r2.env and fill in your R2 settings."
 fi
@@ -84,17 +143,18 @@ log "  Start ComfyUI after bootstrap: ${START_COMFYUI}"
 log "  R2 access key id: set"
 log "  R2 secret access key: set"
 
+ensure_rclone_installed
+configure_rclone_remote
+
 cat <<'EOF'
 
 This bootstrap script is currently a scaffold.
 
 Planned implementation:
-1. Install rclone when it is not available.
-2. Configure an rclone remote for Cloudflare R2.
-3. Validate access to the configured bucket/prefix.
-4. Install or update ComfyUI in COMFYUI_DIR.
-5. Sync models, custom nodes, workflows, and user data from R2.
-6. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
+1. Validate access to the configured bucket/prefix.
+2. Prepare COMFYUI_DIR as the local sync target.
+3. Sync models, custom nodes, workflows, and user data from R2.
+4. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
 
 EOF
 
