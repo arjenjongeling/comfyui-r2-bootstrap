@@ -25,19 +25,5 @@ fi
 log "Changing directory to ${COMFYUI_DIR}"
 cd "${COMFYUI_DIR}"
 
-if [ -f "requirements.txt" ]; then
-    log "Installing ComfyUI Python requirements"
-    python3 -m pip install -r requirements.txt
-fi
-
-if [ -n "${EXTRA_PIP_PACKAGES:-}" ]; then
-    log "Installing extra Python packages: ${EXTRA_PIP_PACKAGES}"
-    # Intentionally split EXTRA_PIP_PACKAGES so users can provide a normal shell-style package list.
-    python3 -m pip install ${EXTRA_PIP_PACKAGES}
-fi
-
 log "Starting ComfyUI on ${COMFYUI_HOST}:${COMFYUI_PORT}"
 exec python3 main.py --listen "${COMFYUI_HOST}" --port "${COMFYUI_PORT}"
-
-echo "[startup] Starting ComfyUI..."
-exec python3 main.py --listen 0.0.0.0 --port 8188

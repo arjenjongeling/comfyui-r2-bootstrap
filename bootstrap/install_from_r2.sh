@@ -176,6 +176,74 @@ prepare_comfyui_installation() {
     log "ComfyUI base installation is ready"
 }
 
+copy_r2_assets_to_comfyui() {
+    local source_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}/${R2_COMFYUI_PREFIX}"
+
+    log "Copying R2 assets into local ComfyUI installation"
+    log "  Source: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}/${R2_COMFYUI_PREFIX}"
+    log "  Target: ${COMFYUI_DIR}"
+    log "  Mode: non-destructive overlay copy"
+
+    rclone copy "${source_path}" "${COMFYUI_DIR}" \
+        --progress \
+        --create-empty-src-dirs
+
+    log "R2 assets copied into ${COMFYUI_DIR}"
+}
+
+install_python_dependencies() {
+    local requirements_file="${COMFYUI_DIR}/requirements.txt"
+    local custom_requirements_count=0
+
+    if ! command_exists python3; then
+        fatal "python3 is required to install ComfyUI dependencies"
+    fi
+
+    if [ ! -f "${requirements_file}" ]; then
+        fatal "Missing ComfyUI requirements file: ${requirements_file}"
+    fi
+
+    log "Installing base ComfyUI Python requirements"
+    python3 -m pip install -r "${requirements_file}"
+
+    if [ -d "${COMFYUI_DIR}/custom_nodes" ]; then
+        while IFS= read -r custom_requirements_file; do
+            custom_requirements_count=$((custom_requirements_count + 1))
+            log "Installing custom node requirements: ${custom_requirements_file}"
+            python3 -m pip install -r "${custom_requirements_file}"
+        done < <(find "${COMFYUI_DIR}/custom_nodes" -mindepth 2 -maxdepth 3 -type f -name requirements.txt | sort)
+    fi
+
+    if [ "${custom_requirements_count}" -eq 0 ]; then
+        log "No custom node requirements found"
+    fi
+
+    if [ -n "${EXTRA_PIP_PACKAGES:-}" ]; then
+        log "Installing extra Python packages: ${EXTRA_PIP_PACKAGES}"
+        # Intentionally split EXTRA_PIP_PACKAGES so users can provide a normal shell-style package list.
+        python3 -m pip install ${EXTRA_PIP_PACKAGES}
+    fi
+}
+
+start_comfyui() {
+    local start_script="${SCRIPT_DIR}/runtime/start_comfyui.sh"
+
+    if [ "${START_COMFYUI}" != "true" ]; then
+        log "START_COMFYUI=false; skipping ComfyUI startup"
+        return
+    fi
+
+    if [ ! -x "${start_script}" ]; then
+        fatal "ComfyUI start script is missing or not executable: ${start_script}"
+    fi
+
+    log "Starting ComfyUI via ${start_script}"
+    export COMFYUI_DIR
+    export COMFYUI_HOST="${COMFYUI_HOST:-0.0.0.0}"
+    export COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+    exec "${start_script}"
+}
+
 if [ ! -f "${ENV_FILE}" ]; then
     fatal "Missing ${ENV_FILE}. Copy bootstrap/r2.env.example to bootstrap/r2.env and fill in your R2 settings."
 fi
@@ -220,15 +288,8 @@ ensure_rclone_installed
 configure_rclone_remote
 validate_r2_access
 prepare_comfyui_installation
+copy_r2_assets_to_comfyui
+install_python_dependencies
+start_comfyui
 
-cat <<'EOF'
-
-This bootstrap script is currently a scaffold.
-
-Planned implementation:
-1. Sync models, custom nodes, workflows, and user data from R2.
-2. Start ComfyUI through bootstrap/runtime/start_comfyui.sh.
-
-EOF
-
-fatal "R2 restore implementation is not complete yet."
+log "Bootstrap completed"
