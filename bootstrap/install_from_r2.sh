@@ -241,6 +241,7 @@ start_comfyui() {
     export COMFYUI_DIR
     export COMFYUI_HOST="${COMFYUI_HOST:-0.0.0.0}"
     export COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+    export COMFYUI_CORS_ORIGIN="${COMFYUI_CORS_ORIGIN:-}"
     exec "${start_script}"
 }
 
