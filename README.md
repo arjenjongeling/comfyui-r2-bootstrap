@@ -39,11 +39,12 @@ comfyui/
 
 ## Quick Start
 
-On a fresh GPU pod, use the active development branch while this project is still under construction:
+On a fresh GPU pod (enable port 8188), use the active development branch while this project is still under construction:
 
 ```bash
 cd /workspace
-git clone -b bootstrap-r2-dev https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git .
+find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+git clone -b bootstrap-r2-dev https://github.com/arjenjongeling/comfyui-r2-bootstrap.git .
 cp bootstrap/r2.env.example bootstrap/r2.env
 nano bootstrap/r2.env
 bash bootstrap/install_from_r2.sh
