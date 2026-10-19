@@ -191,12 +191,16 @@ copy_r2_assets_to_comfyui() {
     log "  Source: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}/${R2_COMFYUI_PREFIX}"
     log "  Target: ${COMFYUI_DIR}"
     log "  Transfers: ${R2_TRANSFERS}"
+    log "  Included trees: models/, user/"
     log "  Mode: non-destructive overlay copy"
 
     rclone copy "${source_path}" "${COMFYUI_DIR}" \
         --progress \
         --transfers "${R2_TRANSFERS}" \
-        --create-empty-src-dirs
+        --create-empty-src-dirs \
+        --include '/models/**' \
+        --include '/user/**' \
+        --exclude '**'
 
     log "R2 assets copied into ${COMFYUI_DIR}"
 }
