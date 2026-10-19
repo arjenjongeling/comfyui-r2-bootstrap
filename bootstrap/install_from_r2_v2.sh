@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ENV_FILE="${SCRIPT_DIR}/r2.env"
+WORKSPACE_DIR="$(pwd -P)"
+COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
 RCLONE_PID=""
 
 log() {
@@ -300,7 +302,6 @@ require_env "R2_ENDPOINT"
 require_env "R2_ACCESS_KEY_ID"
 require_env "R2_SECRET_ACCESS_KEY"
 require_env "R2_COMFYUI_PREFIX"
-require_env "COMFYUI_DIR"
 
 reject_placeholder "R2_REMOTE_NAME"
 reject_placeholder "R2_BUCKET_NAME"
@@ -308,7 +309,9 @@ reject_placeholder "R2_ENDPOINT"
 reject_placeholder "R2_ACCESS_KEY_ID"
 reject_placeholder "R2_SECRET_ACCESS_KEY"
 reject_placeholder "R2_COMFYUI_PREFIX"
-reject_placeholder "COMFYUI_DIR"
+
+# Always install under the directory from which the user invoked this script.
+COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
 
 START_COMFYUI="${START_COMFYUI:-true}"
 R2_TRANSFERS="${R2_TRANSFERS:-32}"
@@ -326,6 +329,7 @@ log "  R2 remote name: ${R2_REMOTE_NAME}"
 log "  R2 bucket: ${R2_BUCKET_NAME}"
 log "  R2 endpoint: ${R2_ENDPOINT}"
 log "  R2 ComfyUI prefix: ${R2_COMFYUI_PREFIX}"
+log "  Workspace directory: ${WORKSPACE_DIR}"
 log "  Target ComfyUI directory: ${COMFYUI_DIR}"
 log "  R2 simultaneous transfers: ${R2_TRANSFERS}"
 log "  Start ComfyUI after bootstrap: ${START_COMFYUI}"
