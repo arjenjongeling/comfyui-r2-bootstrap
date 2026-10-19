@@ -11,6 +11,7 @@ The pod is treated as stateless. Models, LoRAs, custom nodes, workflows, and oth
 ```text
 bootstrap/
 ├── install_from_r2.sh
+├── install_from_r2_v2.sh
 ├── r2.env.example
 └── runtime/
     └── start_comfyui.sh
