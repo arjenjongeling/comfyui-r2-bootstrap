@@ -6,6 +6,25 @@ ENV_FILE="${SCRIPT_DIR}/r2.env"
 WORKSPACE_DIR="$(pwd -P)"
 COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
 RCLONE_PID=""
+DEPENDENCIES_ONLY="false"
+
+case "${1:-}" in
+    "")
+        ;;
+    --dependencies-only)
+        DEPENDENCIES_ONLY="true"
+        ;;
+    --help|-h)
+        printf 'Usage: bash %s [--dependencies-only]\n' "${BASH_SOURCE[0]}"
+        printf '  --dependencies-only  Clone/reuse ComfyUI and install base requirements; skip R2 and startup.\n'
+        exit 0
+        ;;
+    *)
+        printf '[bootstrap-v2][fatal] Unknown option: %s\n' "$1" >&2
+        printf 'Usage: bash %s [--dependencies-only]\n' "${BASH_SOURCE[0]}" >&2
+        exit 2
+        ;;
+esac
 
 log() {
     printf '[bootstrap-v2] %s\n' "$*"
@@ -57,6 +76,22 @@ require_bool() {
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+check_python_version() {
+    local python_version
+
+    if ! command_exists python3; then
+        fatal "python3 is required to install ComfyUI dependencies"
+    fi
+    if ! python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"; then
+        fatal "Could not determine the python3 version"
+    fi
+    if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
+        fatal "ComfyUI requires Python 3.10 or newer; found ${python_version} at $(command -v python3)"
+    fi
+
+    log "Using Python ${python_version}: $(command -v python3)"
 }
 
 ensure_rclone_installed() {
@@ -200,9 +235,9 @@ copy_r2_assets_to_comfyui() {
         --progress \
         --transfers "${R2_TRANSFERS}" \
         --create-empty-src-dirs \
-        --include '/models/**' \
-        --include '/user/**' \
-        --exclude '**'
+        --filter '+ /models/**' \
+        --filter '+ /user/**' \
+        --filter '- **'
 
     log "R2 assets copied into ${COMFYUI_DIR}"
 }
@@ -210,9 +245,6 @@ copy_r2_assets_to_comfyui() {
 install_base_python_requirements() {
     local requirements_file="${COMFYUI_DIR}/requirements.txt"
 
-    if ! command_exists python3; then
-        fatal "python3 is required to install ComfyUI dependencies"
-    fi
     if [ ! -f "${requirements_file}" ]; then
         fatal "Missing ComfyUI requirements file: ${requirements_file}"
     fi
@@ -289,6 +321,15 @@ start_comfyui() {
     exec "${start_script}"
 }
 
+if [ "${DEPENDENCIES_ONLY}" = "true" ]; then
+    log "Dependencies-only mode: R2 configuration, asset copy, custom nodes, and ComfyUI startup are skipped"
+    check_python_version
+    prepare_comfyui_installation
+    install_base_python_requirements
+    log "Base ComfyUI dependency test completed successfully"
+    exit 0
+fi
+
 if [ ! -f "${ENV_FILE}" ]; then
     fatal "Missing ${ENV_FILE}. Copy bootstrap/r2.env.example to bootstrap/r2.env and fill in your R2 settings."
 fi
@@ -322,6 +363,8 @@ fi
 
 R2_COMFYUI_PREFIX="${R2_COMFYUI_PREFIX#/}"
 R2_COMFYUI_PREFIX="${R2_COMFYUI_PREFIX%/}"
+
+check_python_version
 
 log "Loaded configuration from ${ENV_FILE}"
 log "Configuration summary:"
