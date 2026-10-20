@@ -7,6 +7,7 @@
 !*.env.example
 bootstrap/r2.env
 r2.env
+bootstrap/custom_nodes.json
 
 # Python/runtime cache
 __pycache__/
