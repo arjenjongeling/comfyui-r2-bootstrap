@@ -6,6 +6,8 @@ ENV_FILE="${SCRIPT_DIR}/r2.env"
 WORKSPACE_DIR="$(pwd -P)"
 COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
 RCLONE_PID=""
+CUSTOM_NODES_PID=""
+INSTALL_START_SECONDS="$(date +%s)"
 DEPENDENCIES_ONLY="false"
 CUSTOM_NODES_ONLY="false"
 
@@ -46,10 +48,13 @@ fatal() {
 }
 
 cleanup_parallel_jobs() {
-    if [ -n "${RCLONE_PID}" ] && kill -0 "${RCLONE_PID}" 2>/dev/null; then
-        kill "${RCLONE_PID}" 2>/dev/null || true
-        wait "${RCLONE_PID}" 2>/dev/null || true
-    fi
+    local pid
+    for pid in "${RCLONE_PID}" "${CUSTOM_NODES_PID}"; do
+        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+            kill "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+        fi
+    done
 }
 trap cleanup_parallel_jobs EXIT INT TERM
 
@@ -239,11 +244,11 @@ prepare_comfyui_installation() {
 copy_r2_assets_to_comfyui() {
     local source_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
 
-    log "Copying filtered R2 assets and custom-node manifest into workspace"
+    log "Copying filtered R2 assets into workspace"
     log "  Source: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
     log "  Target: ${WORKSPACE_DIR}"
     log "  Transfers: ${R2_TRANSFERS}"
-    log "  Included paths: ${R2_COMFYUI_PREFIX}/models/, ${R2_COMFYUI_PREFIX}/user/, bootstrap/custom_nodes.json"
+    log "  Included paths: ${R2_COMFYUI_PREFIX}/models/, ${R2_COMFYUI_PREFIX}/user/"
     log "  Mode: non-destructive overlay copy"
 
     rclone copy "${source_path}" "${WORKSPACE_DIR}" \
@@ -252,10 +257,18 @@ copy_r2_assets_to_comfyui() {
         --create-empty-src-dirs \
         --filter "+ /${R2_COMFYUI_PREFIX}/models/**" \
         --filter "+ /${R2_COMFYUI_PREFIX}/user/**" \
-        --filter '+ /bootstrap/custom_nodes.json' \
         --filter '- **'
 
-    log "Filtered R2 assets and custom-node manifest copied into workspace"
+    log "Filtered R2 assets copied into workspace"
+}
+
+copy_custom_node_manifest() {
+    local source_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}/bootstrap/custom_nodes.json"
+    local target_path="${WORKSPACE_DIR}/bootstrap/custom_nodes.json"
+
+    log "Downloading the small custom-node manifest before starting parallel setup"
+    rclone copyto "${source_path}" "${target_path}"
+    log "Custom-node manifest downloaded"
 }
 
 install_base_python_requirements() {
@@ -288,6 +301,23 @@ install_custom_node_requirements() {
         log "Installing extra Python packages: ${EXTRA_PIP_PACKAGES}"
         # Intentionally split EXTRA_PIP_PACKAGES so users can provide a normal shell-style package list.
         python3 -m pip install ${EXTRA_PIP_PACKAGES}
+    fi
+}
+
+print_installation_duration() {
+    local elapsed_seconds=$(( $(date +%s) - INSTALL_START_SECONDS ))
+    local elapsed_minutes=$((elapsed_seconds / 60))
+    local remaining_seconds=$((elapsed_seconds % 60))
+    local message=" INSTALLATION FINISHED IN ${elapsed_minutes} MINUTES $(printf '%02d' "${remaining_seconds}") SECONDS "
+    local border
+
+    printf -v border '%*s' "${#message}" ''
+    border="${border// /*}"
+
+    if [ -t 1 ]; then
+        printf '\n\033[1;32m*%s*\n*%s*\n*%s*\033[0m\n\n' "${border}" "${message}" "${border}"
+    else
+        printf '\n*%s*\n*%s*\n*%s*\n\n' "${border}" "${message}" "${border}"
     fi
 }
 
@@ -417,15 +447,36 @@ install_custom_nodes_from_manifest() {
 run_parallel_asset_copy_and_base_install() {
     local requirements_status=0
     local rclone_status=0
+    local custom_nodes_status=0
+    local custom_requirements_status=0
 
     copy_r2_assets_to_comfyui &
     RCLONE_PID=$!
+    install_custom_nodes_from_manifest &
+    CUSTOM_NODES_PID=$!
 
     if install_base_python_requirements; then
         log "Base ComfyUI requirements installed"
     else
         requirements_status=$?
         log "Base ComfyUI requirements installation failed with status ${requirements_status}"
+    fi
+
+    if wait "${CUSTOM_NODES_PID}"; then
+        log "Custom-node repositories are ready"
+    else
+        custom_nodes_status=$?
+        log "Custom-node repository setup failed with status ${custom_nodes_status}"
+    fi
+    CUSTOM_NODES_PID=""
+
+    if [ "${requirements_status}" -eq 0 ] && [ "${custom_nodes_status}" -eq 0 ]; then
+        if install_custom_node_requirements; then
+            log "Custom-node requirements installed"
+        else
+            custom_requirements_status=$?
+            log "Custom-node requirements installation failed with status ${custom_requirements_status}"
+        fi
     fi
 
     if wait "${RCLONE_PID}"; then
@@ -436,8 +487,8 @@ run_parallel_asset_copy_and_base_install() {
     fi
     RCLONE_PID=""
 
-    if [ "${requirements_status}" -ne 0 ] || [ "${rclone_status}" -ne 0 ]; then
-        fatal "Parallel setup failed (requirements status: ${requirements_status}, R2 copy status: ${rclone_status})"
+    if [ "${requirements_status}" -ne 0 ] || [ "${custom_nodes_status}" -ne 0 ] || [ "${custom_requirements_status}" -ne 0 ] || [ "${rclone_status}" -ne 0 ]; then
+        fatal "Setup failed (base requirements: ${requirements_status}, custom-node repositories: ${custom_nodes_status}, custom-node requirements: ${custom_requirements_status}, R2 copy: ${rclone_status})"
     fi
 }
 
@@ -482,6 +533,9 @@ if [ "${CUSTOM_NODES_ONLY}" = "true" ]; then
     fi
     install_custom_nodes_from_manifest
     install_custom_node_requirements
+    if [ "${START_COMFYUI}" = "true" ]; then
+        print_installation_duration
+    fi
     start_comfyui
     log "Custom-node-only setup completed"
     exit 0
@@ -539,10 +593,12 @@ log "  R2 secret access key: set"
 ensure_rclone_installed
 configure_rclone_remote
 validate_r2_access
+copy_custom_node_manifest
 prepare_comfyui_installation
 run_parallel_asset_copy_and_base_install
-install_custom_nodes_from_manifest
-install_custom_node_requirements
+if [ "${START_COMFYUI}" = "true" ]; then
+    print_installation_duration
+fi
 start_comfyui
 
 log "Bootstrap completed"
