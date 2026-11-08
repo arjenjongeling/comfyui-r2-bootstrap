@@ -47,7 +47,7 @@ The installer restores `comfyui/models/` and `comfyui/user/`. It does not restor
 
 On a fresh GPU pod (enable port 8188), use the active development branch while this project is still under construction:
 
-Before the install command, make sure `bootstrap/custom_nodes.json` has been uploaded to your R2 bucket as described in [Custom Nodes](#custom-nodes).
+If you want the bootstrap to install custom nodes, upload `bootstrap/custom_nodes.json` to your R2 bucket as described in [Custom Nodes](#custom-nodes). The manifest is optional; without it, the installer skips manifest-based custom-node installation.
 
 ```bash
 cd /workspace
@@ -60,7 +60,7 @@ bash bootstrap/install_from_r2_v2.sh
 
 ## Custom Nodes
 
-The installer reads `bootstrap/custom_nodes.json` from the root of your R2 bucket. Create your private copy from the public example and edit it to list the nodes you need:
+The installer optionally reads `bootstrap/custom_nodes.json` from the root of your R2 bucket. If the file is absent, it skips custom-node installation and continues with ComfyUI setup. To have the bootstrap install nodes, create your private copy from the public example and edit it:
 
 ```bash
 cp bootstrap/custom_nodes.example.json bootstrap/custom_nodes.json
@@ -85,11 +85,13 @@ The installer will not copy the rest of the bucket's `bootstrap/` directory. Kee
 
 For a node already installed through ComfyUI Manager, open the Manager's installed-nodes view and use the node's details or repository link. You can also search for the node's name in the Manager's node list or on the node author's documentation page. Copy the repository's HTTPS URL into the `repository` field and use the node's installed folder name for `name`.
 
+If you plan to install other missing nodes through ComfyUI Manager instead, make sure ComfyUI-Manager itself is available in the installation. For example, include only the Manager repository in the manifest and leave the other node entries out; the Manager can then offer nodes missing from a workflow through its **Install Missing Custom Nodes** action.
+
 The `revision` field is optional. Leave it empty unless you need to pin a specific version. If you do, open the repository in a web browser, find the desired version in its history, and copy its full revision identifier into `revision`.
 
 ## Security
 
-Keep `bootstrap/r2.env` and `bootstrap/custom_nodes.json` private. Never publish them or include model files in this repository. The `.example` files are templates and contain no credentials or private node list.
+Keep `bootstrap/r2.env` and `bootstrap/custom_nodes.json` private. Set `HF_TOKEN` in `bootstrap/r2.env` for gated Hugging Face downloads; if you do not use Hugging Face authentication, comment out that line. The installer exports the token only to the ComfyUI process and does not include it in R2 copies or log its value. Never publish credentials or include model files in this repository. The `.example` files are templates and contain no real credentials or private node list.
 
 ## Status
 

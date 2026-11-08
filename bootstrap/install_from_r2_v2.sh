@@ -8,6 +8,7 @@ COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
 RCLONE_PID=""
 CUSTOM_NODES_PID=""
 INSTALL_START_SECONDS="$(date +%s)"
+CUSTOM_NODE_MANIFEST_AVAILABLE="false"
 DEPENDENCIES_ONLY="false"
 CUSTOM_NODES_ONLY="false"
 
@@ -40,6 +41,16 @@ fi
 
 log() {
     printf '[bootstrap-v2] %s\n' "$*"
+}
+
+configure_hf_token() {
+    if [ -n "${HF_TOKEN:-}" ]; then
+        export HF_TOKEN
+        log "Hugging Face token is configured"
+    else
+        unset HF_TOKEN
+        log "[warning] HF_TOKEN is not set; gated Hugging Face downloads may require authentication"
+    fi
 }
 
 fatal() {
@@ -167,7 +178,6 @@ configure_rclone_remote() {
 validate_r2_access() {
     local bucket_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
     local prefix_path="${bucket_path}/${R2_COMFYUI_PREFIX}"
-    local manifest_path="${bucket_path}/bootstrap/custom_nodes.json"
     local prefix_listing
 
     log "Validating R2 bucket access: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
@@ -181,10 +191,6 @@ validate_r2_access() {
     fi
     if [ -z "${prefix_listing}" ]; then
         fatal "R2 prefix '${R2_COMFYUI_PREFIX}' exists but appears to be empty. Expected a ComfyUI asset tree."
-    fi
-
-    if ! rclone lsf "${manifest_path}" >/dev/null 2>&1; then
-        fatal "Missing private custom-node manifest in R2: bootstrap/custom_nodes.json"
     fi
 
     log "R2 prefix listing preview:"
@@ -263,11 +269,23 @@ copy_r2_assets_to_comfyui() {
 }
 
 copy_custom_node_manifest() {
-    local source_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}/bootstrap/custom_nodes.json"
+    local bucket_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
+    local source_path="${bucket_path}/bootstrap/custom_nodes.json"
     local target_path="${WORKSPACE_DIR}/bootstrap/custom_nodes.json"
+    local bucket_listing
 
-    log "Downloading the small custom-node manifest before starting parallel setup"
+    if ! bucket_listing="$(rclone lsf "${bucket_path}" --recursive --max-depth 2)"; then
+        fatal "Could not check for optional custom-node manifest in R2"
+    fi
+
+    if ! printf '%s\n' "${bucket_listing}" | grep -Fxq 'bootstrap/custom_nodes.json'; then
+        log "No bootstrap/custom_nodes.json found in R2; skipping custom-node repository installation"
+        return
+    fi
+
+    log "Downloading the custom-node manifest before starting parallel setup"
     rclone copyto "${source_path}" "${target_path}"
+    CUSTOM_NODE_MANIFEST_AVAILABLE="true"
     log "Custom-node manifest downloaded"
 }
 
@@ -452,8 +470,12 @@ run_parallel_asset_copy_and_base_install() {
 
     copy_r2_assets_to_comfyui &
     RCLONE_PID=$!
-    install_custom_nodes_from_manifest &
-    CUSTOM_NODES_PID=$!
+    if [ "${CUSTOM_NODE_MANIFEST_AVAILABLE}" = "true" ]; then
+        install_custom_nodes_from_manifest &
+        CUSTOM_NODES_PID=$!
+    else
+        log "Custom-node installation skipped because no manifest was provided"
+    fi
 
     if install_base_python_requirements; then
         log "Base ComfyUI requirements installed"
@@ -462,15 +484,17 @@ run_parallel_asset_copy_and_base_install() {
         log "Base ComfyUI requirements installation failed with status ${requirements_status}"
     fi
 
-    if wait "${CUSTOM_NODES_PID}"; then
-        log "Custom-node repositories are ready"
-    else
-        custom_nodes_status=$?
-        log "Custom-node repository setup failed with status ${custom_nodes_status}"
+    if [ -n "${CUSTOM_NODES_PID}" ]; then
+        if wait "${CUSTOM_NODES_PID}"; then
+            log "Custom-node repositories are ready"
+        else
+            custom_nodes_status=$?
+            log "Custom-node repository setup failed with status ${custom_nodes_status}"
+        fi
+        CUSTOM_NODES_PID=""
     fi
-    CUSTOM_NODES_PID=""
 
-    if [ "${requirements_status}" -eq 0 ] && [ "${custom_nodes_status}" -eq 0 ]; then
+    if [ "${CUSTOM_NODE_MANIFEST_AVAILABLE}" = "true" ] && [ "${requirements_status}" -eq 0 ] && [ "${custom_nodes_status}" -eq 0 ]; then
         if install_custom_node_requirements; then
             log "Custom-node requirements installed"
         else
@@ -508,6 +532,9 @@ start_comfyui() {
     export COMFYUI_HOST="${COMFYUI_HOST:-0.0.0.0}"
     export COMFYUI_PORT="${COMFYUI_PORT:-8188}"
     export COMFYUI_CORS_ORIGIN="${COMFYUI_CORS_ORIGIN:-}"
+    if [ -n "${HF_TOKEN:-}" ]; then
+        export HF_TOKEN
+    fi
     exec "${start_script}"
 }
 
@@ -525,6 +552,7 @@ if [ "${CUSTOM_NODES_ONLY}" = "true" ]; then
         # shellcheck disable=SC1090
         source "${ENV_FILE}"
     fi
+    configure_hf_token
     COMFYUI_DIR="${WORKSPACE_DIR}/comfyui"
     START_COMFYUI="${START_COMFYUI:-true}"
     check_python_version
@@ -547,6 +575,7 @@ fi
 
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
+configure_hf_token
 
 require_env "R2_REMOTE_NAME"
 require_env "R2_BUCKET_NAME"
