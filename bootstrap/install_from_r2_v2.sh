@@ -9,6 +9,7 @@ RCLONE_PID=""
 CUSTOM_NODES_PID=""
 INSTALL_START_SECONDS="$(date +%s)"
 CUSTOM_NODE_MANIFEST_AVAILABLE="false"
+CUSTOM_NODES_FROM_R2="false"
 DEPENDENCIES_ONLY="false"
 CUSTOM_NODES_ONLY="false"
 
@@ -249,20 +250,33 @@ prepare_comfyui_installation() {
 
 copy_r2_assets_to_comfyui() {
     local source_path="${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
+    local -a filters
+
+    filters=(
+        --filter "+ /${R2_COMFYUI_PREFIX}/models/**"
+        --filter "+ /${R2_COMFYUI_PREFIX}/user/**"
+    )
+
+    if [ "${CUSTOM_NODES_FROM_R2}" = "true" ]; then
+        filters+=(--filter "+ /${R2_COMFYUI_PREFIX}/custom_nodes/**")
+    fi
 
     log "Copying filtered R2 assets into workspace"
     log "  Source: ${R2_REMOTE_NAME}:${R2_BUCKET_NAME}"
     log "  Target: ${WORKSPACE_DIR}"
     log "  Transfers: ${R2_TRANSFERS}"
-    log "  Included paths: ${R2_COMFYUI_PREFIX}/models/, ${R2_COMFYUI_PREFIX}/user/"
+    if [ "${CUSTOM_NODES_FROM_R2}" = "true" ]; then
+        log "  Included paths: ${R2_COMFYUI_PREFIX}/models/, ${R2_COMFYUI_PREFIX}/user/, ${R2_COMFYUI_PREFIX}/custom_nodes/"
+    else
+        log "  Included paths: ${R2_COMFYUI_PREFIX}/models/, ${R2_COMFYUI_PREFIX}/user/"
+    fi
     log "  Mode: non-destructive overlay copy"
 
     rclone copy "${source_path}" "${WORKSPACE_DIR}" \
         --progress \
         --transfers "${R2_TRANSFERS}" \
         --create-empty-src-dirs \
-        --filter "+ /${R2_COMFYUI_PREFIX}/models/**" \
-        --filter "+ /${R2_COMFYUI_PREFIX}/user/**" \
+        "${filters[@]}" \
         --filter '- **'
 
     log "Filtered R2 assets copied into workspace"
@@ -279,7 +293,8 @@ copy_custom_node_manifest() {
     fi
 
     if ! printf '%s\n' "${bucket_listing}" | grep -Fxq 'bootstrap/custom_nodes.json'; then
-        log "No bootstrap/custom_nodes.json found in R2; skipping custom-node repository installation"
+        CUSTOM_NODES_FROM_R2="true"
+        log "No bootstrap/custom_nodes.json found in R2; restoring custom_nodes from the R2 ComfyUI tree instead"
         return
     fi
 
@@ -510,6 +525,15 @@ run_parallel_asset_copy_and_base_install() {
         log "R2 asset copy failed with status ${rclone_status}"
     fi
     RCLONE_PID=""
+
+    if [ "${CUSTOM_NODES_FROM_R2}" = "true" ] && [ "${requirements_status}" -eq 0 ] && [ "${rclone_status}" -eq 0 ]; then
+        if install_custom_node_requirements; then
+            log "R2 custom-node requirements installed"
+        else
+            custom_requirements_status=$?
+            log "R2 custom-node requirements installation failed with status ${custom_requirements_status}"
+        fi
+    fi
 
     if [ "${requirements_status}" -ne 0 ] || [ "${custom_nodes_status}" -ne 0 ] || [ "${custom_requirements_status}" -ne 0 ] || [ "${rclone_status}" -ne 0 ]; then
         fatal "Setup failed (base requirements: ${requirements_status}, custom-node repositories: ${custom_nodes_status}, custom-node requirements: ${custom_requirements_status}, R2 copy: ${rclone_status})"

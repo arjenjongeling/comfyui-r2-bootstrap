@@ -27,6 +27,7 @@ bootstrap/
 └── custom_nodes.json       # private; uploaded by you
 
 comfyui/
+├── custom_nodes/            # used when no private manifest is present
 ├── models/
 │   ├── checkpoints/
 │   ├── diffusion_models/
@@ -41,13 +42,13 @@ comfyui/
         └── workflows/
 ```
 
-The installer restores `comfyui/models/` and `comfyui/user/`. It does not restore `comfyui/custom_nodes/` from R2; it installs those repositories from `bootstrap/custom_nodes.json` instead.
+The installer always restores `comfyui/models/` and `comfyui/user/`. If `bootstrap/custom_nodes.json` exists, it installs nodes from the repositories listed there. If the manifest is absent, it restores all files under `comfyui/custom_nodes/` from R2 and installs their requirements.
 
 ## Quick Start
 
 On a fresh GPU pod (enable port 8188), use the active development branch while this project is still under construction:
 
-If you want the bootstrap to install custom nodes, upload `bootstrap/custom_nodes.json` to your R2 bucket as described in [Custom Nodes](#custom-nodes). The manifest is optional; without it, the installer skips manifest-based custom-node installation.
+If you want the bootstrap to install custom nodes from their source repositories, upload `bootstrap/custom_nodes.json` to R2 as described in [Custom Nodes](#custom-nodes). Otherwise, it restores `comfyui/custom_nodes/` from R2.
 
 ```bash
 cd /workspace
@@ -60,7 +61,12 @@ bash bootstrap/install_from_r2_v2.sh
 
 ## Custom Nodes
 
-The installer optionally reads `bootstrap/custom_nodes.json` from the root of your R2 bucket. If the file is absent, it skips custom-node installation and continues with ComfyUI setup. To have the bootstrap install nodes, create your private copy from the public example and edit it:
+The installer supports two ways to restore custom nodes:
+
+- If `bootstrap/custom_nodes.json` exists at the bucket root, it clones the repositories listed there. The manifest takes precedence over the R2 `custom_nodes/` folder.
+- If the manifest is absent, it copies the complete `comfyui/custom_nodes/` tree from R2 and installs any node requirements found there.
+
+To use the private-manifest method, create your copy from the public example and edit it:
 
 ```bash
 cp bootstrap/custom_nodes.example.json bootstrap/custom_nodes.json
