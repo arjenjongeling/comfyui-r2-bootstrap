@@ -41,15 +41,38 @@ class Cuda13SetupTests(unittest.TestCase):
             nvrtc_builtins.touch()
             package_file = Path("nvidia/cuda_nvrtc/lib/libnvrtc-builtins.so.13.0")
             fake_distribution = SimpleNamespace(
-                metadata={"Name": "nvidia-cuda-nvrtc-cu13"},
+                metadata={"Name": "nvidia-cuda-nvrtc"},
                 files=[package_file],
                 locate_file=lambda path: Path(temp_dir) / "site-packages" / path,
             )
-            with patch.object(setup.metadata, "distributions", return_value=[fake_distribution]):
+            unrelated_dir = Path(temp_dir) / "site-packages/nvidia/cuda_runtime/lib"
+            unrelated_dir.mkdir(parents=True)
+            (unrelated_dir / "libcudart.so.12").touch()
+            unrelated_distribution = SimpleNamespace(
+                metadata={"Name": "nvidia-cuda-runtime-cu12"},
+                files=[Path("nvidia/cuda_runtime/lib/libcudart.so.12")],
+                locate_file=lambda path: Path(temp_dir) / "site-packages" / path,
+            )
+            torch_distribution = SimpleNamespace(requires=["nvidia-cuda-nvrtc==13.0.48"])
+            with (
+                patch.object(setup.metadata, "distribution", return_value=torch_distribution),
+                patch.object(
+                    setup.metadata,
+                    "distributions",
+                    return_value=[fake_distribution, unrelated_distribution],
+                ),
+            ):
                 self.assertEqual(setup.cuda13_library_dirs(), [str(library_dir)])
 
             nvrtc_builtins.unlink()
-            with patch.object(setup.metadata, "distributions", return_value=[fake_distribution]):
+            with (
+                patch.object(setup.metadata, "distribution", return_value=torch_distribution),
+                patch.object(
+                    setup.metadata,
+                    "distributions",
+                    return_value=[fake_distribution, unrelated_distribution],
+                ),
+            ):
                 with self.assertRaisesRegex(setup.SetupError, "libnvrtc-builtins.so.13.0"):
                     setup.cuda13_library_dirs()
 

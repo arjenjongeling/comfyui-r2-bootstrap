@@ -99,9 +99,16 @@ def torch_distribution_version():
 
 def cuda13_library_dirs():
     directories = set()
+    torch_distribution = metadata.distribution("torch")
+    required_nvidia_packages = set()
+    for requirement in torch_distribution.requires or ():
+        match = re.match(r"\s*(nvidia[-_][A-Za-z0-9_.-]+)", requirement, re.IGNORECASE)
+        if match:
+            required_nvidia_packages.add(match.group(1).lower().replace("_", "-"))
+
     for distribution in metadata.distributions():
         name = (distribution.metadata.get("Name") or "").lower().replace("_", "-")
-        if not name.startswith("nvidia-") or not name.endswith("-cu13"):
+        if name not in required_nvidia_packages:
             continue
         for package_file in distribution.files or ():
             path = Path(distribution.locate_file(package_file))
