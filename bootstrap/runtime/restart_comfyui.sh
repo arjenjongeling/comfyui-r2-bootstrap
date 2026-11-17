@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 BOOTSTRAP_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 ENV_FILE="${BOOTSTRAP_DIR}/r2.env"
 START_SCRIPT="${SCRIPT_DIR}/start_comfyui.sh"
+PIP_CONSTRAINT_TEMP=""
+ORIGINAL_PIP_CONSTRAINT="${PIP_CONSTRAINT:-}"
 
 COMFYUI_DIR="${COMFYUI_DIR:-/workspace/comfyui}"
 
@@ -17,8 +19,62 @@ fatal() {
     exit 1
 }
 
+cleanup() {
+    if [ -n "${PIP_CONSTRAINT_TEMP}" ]; then
+        rm -f -- "${PIP_CONSTRAINT_TEMP}"
+    fi
+}
+trap cleanup EXIT
+
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+preserve_cuda13_torch_versions() {
+    local constraints
+
+    if ! constraints="$(python3 - <<'PY'
+from importlib import metadata
+import re
+
+try:
+    torch_version = metadata.version("torch")
+except metadata.PackageNotFoundError:
+    raise SystemExit(0)
+
+if not re.search(r"\+cu13\d+", torch_version):
+    raise SystemExit(0)
+
+versions = {"torch": torch_version}
+for package in ("torchvision", "torchaudio"):
+    try:
+        versions[package] = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        pass
+
+for package, version in versions.items():
+    if not re.fullmatch(r"[A-Za-z0-9.+!_-]+", version):
+        raise SystemExit(f"Invalid installed version metadata for {package}")
+    print(f"{package}=={version}")
+PY
+)"; then
+        fatal "Could not inspect the installed PyTorch versions"
+    fi
+
+    if [ -z "${constraints}" ]; then
+        return
+    fi
+
+    PIP_CONSTRAINT_TEMP="$(mktemp)"
+    if [ -n "${ORIGINAL_PIP_CONSTRAINT}" ]; then
+        if [ ! -f "${ORIGINAL_PIP_CONSTRAINT}" ]; then
+            fatal "PIP_CONSTRAINT does not point to a file: ${ORIGINAL_PIP_CONSTRAINT}"
+        fi
+        cat -- "${ORIGINAL_PIP_CONSTRAINT}" >"${PIP_CONSTRAINT_TEMP}"
+    fi
+    printf '%s\n' "${constraints}" >>"${PIP_CONSTRAINT_TEMP}"
+    export PIP_CONSTRAINT="${PIP_CONSTRAINT_TEMP}"
+    log "Preserving installed CUDA 13 PyTorch packages during dependency installation"
 }
 
 install_python_dependencies() {
@@ -77,7 +133,17 @@ if [ ! -x "${START_SCRIPT}" ]; then
     fatal "ComfyUI start script is missing or not executable: ${START_SCRIPT}"
 fi
 
+preserve_cuda13_torch_versions
 install_python_dependencies
+if [ -n "${PIP_CONSTRAINT_TEMP}" ]; then
+    if [ -n "${ORIGINAL_PIP_CONSTRAINT}" ]; then
+        export PIP_CONSTRAINT="${ORIGINAL_PIP_CONSTRAINT}"
+    else
+        unset PIP_CONSTRAINT
+    fi
+    cleanup
+    PIP_CONSTRAINT_TEMP=""
+fi
 
 export COMFYUI_DIR
 export COMFYUI_HOST="${COMFYUI_HOST:-0.0.0.0}"

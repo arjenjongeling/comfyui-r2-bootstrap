@@ -15,6 +15,8 @@ bootstrap/
 ├── custom_nodes.example.json
 ├── r2.env.example
 └── runtime/
+    ├── configure_cuda13.py
+    ├── restart_comfyui.sh
     └── start_comfyui.sh
 ```
 
@@ -43,6 +45,8 @@ comfyui/
 ```
 
 The installer always restores `comfyui/models/` and `comfyui/user/`. If `bootstrap/custom_nodes.json` exists, it installs nodes from the repositories listed there. If the manifest is absent, it restores all files under `comfyui/custom_nodes/` from R2 and installs their requirements.
+
+On a GPU pod with an NVIDIA driver version 580 or newer and a GPU compute capability of 7.5 or newer, the runtime checks whether PyTorch uses CUDA 12. If so, it checks wheel availability and upgrades PyTorch to the CUDA 13.0 build before starting ComfyUI. Existing CUDA 13 installations are retained. Set `COMFYUI_AUTO_CUDA13="0"` in `bootstrap/r2.env` to disable the automatic upgrade. A failed or unverifiable upgrade prevents ComfyUI from starting.
 
 ## Quick Start
 
